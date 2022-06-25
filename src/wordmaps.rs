@@ -4,8 +4,8 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 
 use anyhow::Result;
-use rkyv::{Archive, Serialize};
 use hashbrown::HashMap;
+use rkyv::{Archive, Serialize};
 
 /// A 32 bit sized pointer to a given word.
 ///
@@ -22,7 +22,6 @@ impl Debug for WordRef {
         write!(f, "WordRef(index={})", self.0)
     }
 }
-
 
 /// Is is required because archived types dont implement the methods
 /// we define. And for safety we want to hide exposing the inner buffer.
@@ -128,7 +127,6 @@ impl Hash for Word {
     }
 }
 
-
 /// A purely memory word map.
 ///
 /// This tries to be very space efficient without sacrificing on access time or
@@ -204,7 +202,6 @@ impl MemBackedWordMap {
     }
 }
 
-
 /// A WordMap that is stored on a mmap file and then treated like a struct
 /// via `rkyv`'s zero copy api.
 ///
@@ -223,15 +220,13 @@ impl DiskBackedWordMap {
         let data = rkyv::to_bytes::<_, 1024>(&map)?;
         drop(map);
 
-        let mut mmap = memmap2::MmapOptions::new()
-            .len(data.len())
-            .map_anon()?;
+        let mut mmap = memmap2::MmapOptions::new().len(data.len()).map_anon()?;
 
         mmap.copy_from_slice(&data);
         drop(data);
 
         Ok(Self {
-            file: mmap.make_read_only()?
+            file: mmap.make_read_only()?,
         })
     }
 
@@ -249,7 +244,6 @@ impl DiskBackedWordMap {
     }
 }
 
-
 #[inline]
 fn hash_string(s: &str) -> u64 {
     let mut hasher = ahash::AHasher::default();
@@ -258,16 +252,18 @@ fn hash_string(s: &str) -> u64 {
     hasher.finish()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn get_words() -> HashMap<String, Vec<String>> {
-        HashMap::from_iter(vec![
-            ("hello".into(), vec!["foo".into(), "bar".into()]),
-            ("world".into(), vec!["foo".into(), "baz".into()]),
-        ].into_iter())
+        HashMap::from_iter(
+            vec![
+                ("hello".into(), vec!["foo".into(), "bar".into()]),
+                ("world".into(), vec!["foo".into(), "baz".into()]),
+            ]
+            .into_iter(),
+        )
     }
 
     #[test]

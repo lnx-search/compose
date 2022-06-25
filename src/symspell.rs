@@ -1,18 +1,16 @@
-use std::cmp;
 use std::fs::File;
-use std::i64;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::{cmp, i64};
 
-use rayon::prelude::*;
 use deunicode::deunicode;
 use hashbrown::{HashMap, HashSet};
+use rayon::prelude::*;
 
 use crate::composition::Composition;
 use crate::edit_distance;
 use crate::suggestion::Suggestion;
 use crate::wordmaps::{DiskBackedWordMap, MemBackedWordMap, WordRepr};
-
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum Verbosity {
@@ -62,10 +60,8 @@ mod ascii {
     }
 }
 
-
 const WORD_COUNT: i64 = 1_024_908_267_229;
 const PREFIX_LENGTH: i64 = 7;
-
 
 pub struct SymSpell {
     /// Maximum edit distance for doing lookups.
@@ -171,27 +167,23 @@ impl SymSpell {
                     };
                     self.words.insert(term.to_string(), updated_count);
                     continue;
-                }
+                },
                 None => {
                     self.words.insert(term.to_string(), count);
                     to_compute.push(term.to_string());
-                }
+                },
             }
 
             let key_len = term.len();
             if key_len > self.max_length {
                 self.max_length = key_len;
             }
-
         }
 
         let computed_edits: Vec<(String, HashSet<String>)> = to_compute
             .into_par_iter()
             .map(|word| {
-                let deletes = edits_prefix(
-                    edit_distance,
-                    &word,
-                );
+                let deletes = edits_prefix(edit_distance, &word);
 
                 (word, deletes)
             })
@@ -216,18 +208,15 @@ impl SymSpell {
             return;
         }
 
+        let long_edit_results: Vec<(String, HashSet<String>)> =
+            Vec::from_iter(long_words.into_iter())
+                .into_par_iter()
+                .map(|long_word| {
+                    let deletes = edits_suffix(edit_distance, &long_word);
 
-        let long_edit_results: Vec<(String, HashSet<String>)> = Vec::from_iter(long_words.into_iter())
-            .into_par_iter()
-            .map(|long_word| {
-                let deletes = edits_suffix(
-                    edit_distance,
-                    &long_word,
-                );
-
-                (long_word, deletes)
-            })
-            .collect();
+                    (long_word, deletes)
+                })
+                .collect();
 
         let mut suffix_edits = HashMap::new();
         for (long_word, suffixes) in long_edit_results {
@@ -308,7 +297,8 @@ impl SymSpell {
 
         if input_prefix_len > PREFIX_LENGTH {
             input_prefix_len = PREFIX_LENGTH;
-            candidates.push(ascii::slice(input, 0, input_prefix_len as usize).to_string());
+            candidates
+                .push(ascii::slice(input, 0, input_prefix_len as usize).to_string());
         } else {
             candidates.push(input.to_string());
         }
@@ -337,7 +327,8 @@ impl SymSpell {
 
                     if (suggestion_len - input_len).abs() > max_edit_distance2
                         || suggestion_len < candidate_len
-                        || (suggestion_len == candidate_len && suggestion.as_str() != candidate)
+                        || (suggestion_len == candidate_len
+                            && suggestion.as_str() != candidate)
                     {
                         continue;
                     }
@@ -355,19 +346,24 @@ impl SymSpell {
                     if candidate_len == 0 {
                         distance = cmp::max(input_len, suggestion_len);
 
-                        if distance > max_edit_distance2 || hashset2.contains(suggestion.as_str()) {
+                        if distance > max_edit_distance2
+                            || hashset2.contains(suggestion.as_str())
+                        {
                             continue;
                         }
                         hashset2.insert(suggestion.to_string());
                     } else if suggestion_len == 1 {
                         distance =
-                            if !input.contains(&ascii::slice(suggestion.as_str(), 0, 1)) {
+                            if !input.contains(&ascii::slice(suggestion.as_str(), 0, 1))
+                            {
                                 input_len
                             } else {
                                 input_len - 1
                             };
 
-                        if distance > max_edit_distance2 || hashset2.contains(suggestion.as_str()) {
+                        if distance > max_edit_distance2
+                            || hashset2.contains(suggestion.as_str())
+                        {
                             continue;
                         }
 
@@ -398,9 +394,11 @@ impl SymSpell {
                         }
                         hashset2.insert(suggestion.to_string());
 
-                        if let Some(d) =
-                            edit_distance::compare(input, suggestion.as_str(), max_edit_distance2)
-                        {
+                        if let Some(d) = edit_distance::compare(
+                            input,
+                            suggestion.as_str(),
+                            max_edit_distance2,
+                        ) {
                             distance = d;
                         } else {
                             continue;
@@ -408,11 +406,16 @@ impl SymSpell {
                     }
 
                     if distance <= max_edit_distance2 {
-                        let suggestion_count = match self.words.get(suggestion.as_str()) {
+                        let suggestion_count = match self.words.get(suggestion.as_str())
+                        {
                             None => unreachable!(),
                             Some(v) => *v,
                         };
-                        let si = Suggestion::new(suggestion.as_str(), distance, suggestion_count);
+                        let si = Suggestion::new(
+                            suggestion.as_str(),
+                            distance,
+                            suggestion_count,
+                        );
 
                         if !suggestions.is_empty() {
                             match verbosity {
@@ -420,7 +423,7 @@ impl SymSpell {
                                     if distance < max_edit_distance2 {
                                         suggestions.clear();
                                     }
-                                }
+                                },
                                 Verbosity::Top => {
                                     if distance < max_edit_distance2
                                         || suggestion_count > suggestions[0].count
@@ -429,7 +432,7 @@ impl SymSpell {
                                         suggestions[0] = si;
                                     }
                                     continue;
-                                }
+                                },
                                 _ => (),
                             }
                         }
@@ -539,8 +542,7 @@ impl SymSpell {
 
             // always split terms without suggestion / never split terms with suggestion ed=0 / never split single char terms
             if !suggestions.is_empty()
-                && ((suggestions[0].distance == 0)
-                    || (term_list1[i].len() == 1))
+                && ((suggestions[0].distance == 0) || (term_list1[i].len() == 1))
             {
                 //choose best suggestion
                 suggestion_parts.push(suggestions[0].clone());
@@ -562,18 +564,19 @@ impl SymSpell {
 
                         let mut suggestion_split = Suggestion::empty();
 
-                        let suggestions1 = self.lookup(part1, Verbosity::Top, edit_distance_max);
+                        let suggestions1 =
+                            self.lookup(part1, Verbosity::Top, edit_distance_max);
 
                         if !suggestions1.is_empty() {
-                            let suggestions2 = self.lookup(
-                                part2,
-                                Verbosity::Top,
-                                edit_distance_max,
-                            );
+                            let suggestions2 =
+                                self.lookup(part2, Verbosity::Top, edit_distance_max);
 
                             if !suggestions2.is_empty() {
                                 // select best suggestion for split pair
-                                let term = format!("{} {}", suggestions1[0].term, suggestions2[0].term);
+                                let term = format!(
+                                    "{} {}",
+                                    suggestions1[0].term, suggestions2[0].term
+                                );
 
                                 let distance2 = edit_distance::compare(
                                     &term_list1[i],
@@ -610,7 +613,8 @@ impl SymSpell {
 
                                 //early termination of split
                                 if suggestion_split_best.term.is_empty()
-                                    || suggestion_split.count > suggestion_split_best.count
+                                    || suggestion_split.count
+                                        > suggestion_split_best.count
                                 {
                                     suggestion_split_best = suggestion_split.clone();
                                 }
@@ -625,8 +629,7 @@ impl SymSpell {
                         let mut si = Suggestion::empty();
                         // NOTE: this effectively clamps si_count to a certain minimum value, which it can't go below
                         let si_count: f64 = 10f64
-                            / ((10i64)
-                                .saturating_pow(term_list1[i].len() as u32))
+                            / ((10i64).saturating_pow(term_list1[i].len() as u32))
                                 as f64;
 
                         si.term = term_list1[i].clone();
@@ -638,8 +641,7 @@ impl SymSpell {
                     let mut si = Suggestion::empty();
                     // NOTE: this effectively clamps si_count to a certain minimum value, which it can't go below
                     let si_count: f64 = 10f64
-                        / ((10i64).saturating_pow(term_list1[i].len() as u32))
-                            as f64;
+                        / ((10i64).saturating_pow(term_list1[i].len() as u32)) as f64;
 
                     si.term = term_list1[i].clone();
                     si.count = si_count as i64;
@@ -708,8 +710,7 @@ impl SymSpell {
                 let results = self.lookup(&part, Verbosity::Top, max_edit_distance);
 
                 if !results.is_empty() && results[0].distance == 0 {
-                    top_prob_log =
-                        (results[0].count as f64 / WORD_COUNT as f64).log10();
+                    top_prob_log = (results[0].count as f64 / WORD_COUNT as f64).log10();
                 } else {
                     top_ed += part.len() as i64;
                     top_prob_log = (10.0
@@ -727,7 +728,8 @@ impl SymSpell {
                         prob_log_sum: top_prob_log,
                     };
                 } else if i == self.max_length
-                    || (((compositions[ci].distance_sum + top_ed == compositions[di].distance_sum)
+                    || (((compositions[ci].distance_sum + top_ed
+                        == compositions[di].distance_sum)
                         || (compositions[ci].distance_sum + sep_len + top_ed
                             == compositions[di].distance_sum))
                         && (compositions[di].prob_log_sum
@@ -736,7 +738,10 @@ impl SymSpell {
                         < compositions[di].distance_sum)
                 {
                     compositions[di] = Composition {
-                        segmented_string: format!("{} {}", compositions[ci].segmented_string, part),
+                        segmented_string: format!(
+                            "{} {}",
+                            compositions[ci].segmented_string, part
+                        ),
                         distance_sum: compositions[ci].distance_sum + sep_len + top_ed,
                         prob_log_sum: compositions[ci].prob_log_sum + top_prob_log,
                     };
@@ -813,9 +818,7 @@ impl SymSpell {
                     || (ascii::at(input, (input_len - min) as isize)
                         != ascii::at(suggestion, (suggestion_len - min - 1) as isize))))
     }
-
 }
-
 
 #[inline]
 fn parse_words(text: &str) -> Vec<String> {
@@ -824,7 +827,6 @@ fn parse_words(text: &str) -> Vec<String> {
         .map(String::from)
         .collect()
 }
-
 
 fn edits_prefix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String> {
     let mut hash_set = HashSet::new();
@@ -838,7 +840,12 @@ fn edits_prefix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String>
     if key_len > PREFIX_LENGTH {
         let shortened_key = ascii::slice(key, 0, PREFIX_LENGTH as usize);
         hash_set.insert(shortened_key.to_string());
-        edits(max_dictionary_edit_distance, shortened_key, 0, &mut hash_set);
+        edits(
+            max_dictionary_edit_distance,
+            shortened_key,
+            0,
+            &mut hash_set,
+        );
     } else {
         hash_set.insert(key.to_string());
         edits(max_dictionary_edit_distance, key, 0, &mut hash_set);
@@ -846,7 +853,6 @@ fn edits_prefix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String>
 
     hash_set
 }
-
 
 fn edits(
     max_dictionary_edit_distance: i64,
@@ -865,18 +871,19 @@ fn edits(
                 delete_words.insert(delete.clone());
 
                 if edit_distance < max_dictionary_edit_distance {
-                    edits(max_dictionary_edit_distance, &delete, edit_distance, delete_words);
+                    edits(
+                        max_dictionary_edit_distance,
+                        &delete,
+                        edit_distance,
+                        delete_words,
+                    );
                 }
             }
         }
     }
 }
 
-
-fn edits_suffix(
-    max_dictionary_edit_distance: i64,
-    key: &str
-) -> HashSet<String> {
+fn edits_suffix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String> {
     let mut hash_set = HashSet::new();
 
     let key_len = key.len() as i64;
@@ -886,13 +893,15 @@ fn edits_suffix(
     }
 
     if key_len > (PREFIX_LENGTH - 1) {
-        let shortened_key = ascii::slice(
-            key,
-            key.len() - (PREFIX_LENGTH - 1) as usize,
-            key.len(),
-        );
+        let shortened_key =
+            ascii::slice(key, key.len() - (PREFIX_LENGTH - 1) as usize, key.len());
         hash_set.insert(shortened_key.to_string());
-        edits_reverse(max_dictionary_edit_distance, shortened_key, 0, &mut hash_set);
+        edits_reverse(
+            max_dictionary_edit_distance,
+            shortened_key,
+            0,
+            &mut hash_set,
+        );
     } else {
         hash_set.insert(key.to_string());
         edits_reverse(max_dictionary_edit_distance, key, 0, &mut hash_set);
@@ -900,7 +909,6 @@ fn edits_suffix(
 
     hash_set
 }
-
 
 fn edits_reverse(
     max_dictionary_edit_distance: i64,
@@ -919,13 +927,17 @@ fn edits_reverse(
                 delete_words.insert(delete.clone());
 
                 if edit_distance < max_dictionary_edit_distance {
-                    edits_reverse(max_dictionary_edit_distance, &delete, edit_distance, delete_words);
+                    edits_reverse(
+                        max_dictionary_edit_distance,
+                        &delete,
+                        edit_distance,
+                        delete_words,
+                    );
                 }
             }
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -942,7 +954,12 @@ mod tests {
     fn check_big_words() {
         let mut sym_spell = SymSpell::default();
         let instant = std::time::Instant::now();
-        sym_spell.using_dictionary_file("./data/frequency_dictionary_en_82_765.txt", 0, 1, " ");
+        sym_spell.using_dictionary_file(
+            "./data/frequency_dictionary_en_82_765.txt",
+            0,
+            1,
+            " ",
+        );
         println!("{:?}", instant.elapsed());
 
         let long = sym_spell.big_deletes.as_ref().unwrap();
@@ -963,7 +980,12 @@ mod tests {
     #[test]
     fn bench_correct() {
         let mut sym_spell = SymSpell::default();
-        sym_spell.using_dictionary_file("./data/frequency_dictionary_en_82_765.txt", 0, 1, " ");
+        sym_spell.using_dictionary_file(
+            "./data/frequency_dictionary_en_82_765.txt",
+            0,
+            1,
+            " ",
+        );
 
         let edit_distance_max: i64 = 2;
         let start = std::time::Instant::now();
@@ -989,17 +1011,21 @@ mod tests {
             assert_eq!(correction, results);
 
             let typo = "in te dhird qarter oflast jear he hadlearned ofca sekretplan";
-            let correction = "in the third quarter of last year he had learned of a secret plan";
+            let correction =
+                "in the third quarter of last year he had learned of a secret plan";
             let results = sym_spell.lookup_compound(typo, edit_distance_max);
             assert_eq!(correction, results);
 
-            let typo = "the bigjest playrs in te strogsommer film slatew ith plety of funn";
-            let correction = "the biggest players in the strong summer film slate with plenty of fun";
+            let typo =
+                "the bigjest playrs in te strogsommer film slatew ith plety of funn";
+            let correction =
+                "the biggest players in the strong summer film slate with plenty of fun";
             let results = sym_spell.lookup_compound(typo, edit_distance_max);
             assert_eq!(correction, results);
 
             let typo = "Can yu readthis messa ge despite thehorible sppelingmsitakes";
-            let correction = "can you read this message despite the horrible spelling mistakes";
+            let correction =
+                "can you read this message despite the horrible spelling mistakes";
             let results = sym_spell.lookup_compound(typo, edit_distance_max);
             assert_eq!(correction, results);
         }
@@ -1010,7 +1036,12 @@ mod tests {
     fn test_lookup_compound() {
         let edit_distance_max = 2;
         let mut sym_spell = SymSpell::default();
-        sym_spell.using_dictionary_file("./data/frequency_dictionary_en_82_765.txt", 0, 1, " ");
+        sym_spell.using_dictionary_file(
+            "./data/frequency_dictionary_en_82_765.txt",
+            0,
+            1,
+            " ",
+        );
 
         let typo = "whereis th elove";
         let correction = "whereas the love";
@@ -1033,17 +1064,20 @@ mod tests {
         assert_eq!(correction, results);
 
         let typo = "in te dhird qarter oflast jear he hadlearned ofca sekretplan";
-        let correction = "in the third quarter of last year he had learned of a secret plan";
+        let correction =
+            "in the third quarter of last year he had learned of a secret plan";
         let results = sym_spell.lookup_compound(typo, edit_distance_max);
         assert_eq!(correction, results);
 
         let typo = "the bigjest playrs in te strogsommer film slatew ith plety of funn";
-        let correction = "the biggest players in the strong summer film slate with plenty of fun";
+        let correction =
+            "the biggest players in the strong summer film slate with plenty of fun";
         let results = sym_spell.lookup_compound(typo, edit_distance_max);
         assert_eq!(correction, results);
 
         let typo = "Can yu readthis messa ge despite thehorible sppelingmsitakes";
-        let correction = "can you read this message despite the horrible spelling mistakes";
+        let correction =
+            "can you read this message despite the horrible spelling mistakes";
         let results = sym_spell.lookup_compound(typo, edit_distance_max);
         assert_eq!(correction, results);
     }
@@ -1052,7 +1086,12 @@ mod tests {
     fn test_word_segmentation() {
         let edit_distance_max = 2;
         let mut sym_spell = SymSpell::default();
-        sym_spell.using_dictionary_file("./data/frequency_dictionary_en_82_765.txt", 0, 1, " ");
+        sym_spell.using_dictionary_file(
+            "./data/frequency_dictionary_en_82_765.txt",
+            0,
+            1,
+            " ",
+        );
 
         let typo = "thequickbrownfoxjumpsoverthelazydog";
         let correction = "the quick brown fox jumps over the lazy dog";
@@ -1060,7 +1099,8 @@ mod tests {
         assert_eq!(correction, result.segmented_string);
 
         let typo = "itwasabrightcolddayinaprilandtheclockswerestrikingthirteen";
-        let correction = "it was a bright cold day in april and the clocks were striking thirteen";
+        let correction =
+            "it was a bright cold day in april and the clocks were striking thirteen";
         let result = sym_spell.word_segmentation(typo, edit_distance_max);
         assert_eq!(correction, result.segmented_string);
 
