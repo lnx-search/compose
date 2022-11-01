@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -265,7 +266,7 @@ impl SymSpell {
             panic!("max_edit_distance is bigger than max_dictionary_edit_distance");
         }
 
-        let mut suggestions: Vec<Suggestion> = Vec::new();
+        let mut suggestions: Vec<Suggestion> = Vec::with_capacity(4);
 
         let prep_input = ascii::prepare(input);
         let input = prep_input.as_str();
@@ -275,8 +276,8 @@ impl SymSpell {
             return suggestions;
         }
 
-        let mut hashset1: HashSet<String> = HashSet::new();
-        let mut hashset2: HashSet<String> = HashSet::new();
+        let mut hashset1: HashSet<Cow<str>> = HashSet::with_capacity(16);
+        let mut hashset2: HashSet<Cow<str>> = HashSet::with_capacity(16);
 
         if self.words.contains_key(input) {
             let suggestion_count = self.words[input];
@@ -287,24 +288,27 @@ impl SymSpell {
             }
         }
 
-        hashset2.insert(input.to_string());
+        hashset2.insert(Cow::Borrowed(input));
 
         let mut max_edit_distance2 = max_edit_distance;
         let mut candidate_pointer = 0;
-        let mut candidates = Vec::new();
+        let mut candidates: Vec<Cow<str>> = Vec::new();
 
         let mut input_prefix_len = input_len;
 
         if input_prefix_len > PREFIX_LENGTH {
             input_prefix_len = PREFIX_LENGTH;
-            candidates
-                .push(ascii::slice(input, 0, input_prefix_len as usize).to_string());
+            candidates.push(Cow::Borrowed(ascii::slice(
+                input,
+                0,
+                input_prefix_len as usize,
+            )));
         } else {
-            candidates.push(input.to_string());
+            candidates.push(Cow::Borrowed(input));
         }
 
         while candidate_pointer < candidates.len() {
-            let candidate = &candidates.get(candidate_pointer).unwrap().clone();
+            let candidate = candidates.get(candidate_pointer).unwrap().clone();
             candidate_pointer += 1;
             let candidate_len = candidate.len() as i64;
             let length_diff = input_prefix_len - candidate_len;
@@ -316,7 +320,7 @@ impl SymSpell {
                 break;
             }
 
-            if let Some(dict_suggestions) = self.deletes.get(candidate) {
+            if let Some(dict_suggestions) = self.deletes.get(&candidate) {
                 for ref_ in dict_suggestions {
                     let suggestion = self.deletes.word_at(ref_);
                     let suggestion_len = suggestion.len() as i64;
@@ -351,15 +355,17 @@ impl SymSpell {
                         {
                             continue;
                         }
-                        hashset2.insert(suggestion.to_string());
+                        hashset2.insert(Cow::Borrowed(suggestion.as_str()));
                     } else if suggestion_len == 1 {
-                        distance =
-                            if !input.contains(&ascii::slice(suggestion.as_str(), 0, 1))
-                            {
-                                input_len
-                            } else {
-                                input_len - 1
-                            };
+                        distance = if !input.contains(ascii::slice(
+                            suggestion.as_str(),
+                            0,
+                            1,
+                        )) {
+                            input_len
+                        } else {
+                            input_len - 1
+                        };
 
                         if distance > max_edit_distance2
                             || hashset2.contains(suggestion.as_str())
@@ -367,7 +373,7 @@ impl SymSpell {
                             continue;
                         }
 
-                        hashset2.insert(suggestion.to_string());
+                        hashset2.insert(Cow::Borrowed(suggestion.as_str()));
                     } else if self.has_different_suffix(
                         max_edit_distance,
                         input,
@@ -380,7 +386,7 @@ impl SymSpell {
                     } else {
                         if verbosity != Verbosity::All
                             && !self.delete_in_suggestion_prefix(
-                                candidate,
+                                &candidate,
                                 candidate_len,
                                 suggestion.as_str(),
                                 suggestion_len,
@@ -392,7 +398,7 @@ impl SymSpell {
                         if hashset2.contains(suggestion.as_str()) {
                             continue;
                         }
-                        hashset2.insert(suggestion.to_string());
+                        hashset2.insert(Cow::Borrowed(suggestion.as_str()));
 
                         if let Some(d) = edit_distance::compare(
                             input,
@@ -452,9 +458,10 @@ impl SymSpell {
                 }
 
                 for i in 0..candidate_len {
-                    let delete = ascii::remove(candidate, i as usize);
+                    let delete: Cow<str> =
+                        Cow::Owned(ascii::remove(&candidate, i as usize));
 
-                    if !hashset1.contains(&delete) {
+                    if !hashset1.contains(delete.as_ref()) {
                         hashset1.insert(delete.clone());
                         candidates.push(delete);
                     }
