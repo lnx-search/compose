@@ -3,17 +3,18 @@ use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
 
+use bytecheck::CheckBytes;
 use hashbrown::HashMap;
-use rkyv::{Archive, Serialize};
+use rkyv::{Archive, Deserialize, Serialize};
 
 /// A 32 bit sized pointer to a given word.
 ///
 /// This is used so much we want to reduce the size of our points as much as possible.
 /// 32 bits is really all that we require as any larger than a 32 bit length array wont
 /// fit in memory or be able to be used regardless.
-#[derive(Archive, Serialize, Copy, Clone)]
+#[derive(Archive, Deserialize, Serialize, Copy, Clone)]
 #[archive(compare(PartialEq))]
-#[archive_attr(derive(Debug))]
+#[archive_attr(derive(Debug, CheckBytes))]
 pub struct WordRef(u32);
 
 impl Debug for WordRef {
@@ -44,9 +45,9 @@ impl WordRepr for rkyv::Archived<Word> {
 /// as_str which performs an checked transmute.
 ///
 /// The Archived variant of this type only implements `as_str` and derives Debug and EQ.
-#[derive(Archive, Serialize, Clone, Default)]
+#[derive(Archive, Deserialize, Serialize, Clone, Default)]
 #[archive(compare(PartialEq))]
-#[archive_attr(derive(Debug))]
+#[archive_attr(derive(Debug, CheckBytes))]
 pub struct Word(Box<[u8]>);
 
 impl WordRepr for Word {
@@ -135,19 +136,20 @@ impl Hash for Word {
 /// `u64 (hash of the string) -> Box<[u32]>` and then heavily de-duplicates words which
 /// are then inserted as the `word_references` this is just a array containing a `Word` each
 /// `WordRef` is just a index to this array in order to retrieve words.
-#[derive(Archive, Serialize, Default)]
-pub struct MemBackedWordMap {
+#[derive(Archive, Deserialize, Serialize, Default)]
+#[archive_attr(derive(CheckBytes))]
+pub struct WordMap {
     data: HashMap<u64, Box<[WordRef]>>,
     word_references: Box<[Word]>,
 }
 
-impl Debug for MemBackedWordMap {
+impl Debug for WordMap {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.data)
     }
 }
 
-impl MemBackedWordMap {
+impl WordMap {
     /// Gets the word which is located at the given `WordRef` pointer.
     #[inline]
     pub fn word_at(&self, word_ref: &WordRef) -> &Word {
@@ -162,7 +164,9 @@ impl MemBackedWordMap {
     }
 
     /// Creates a new `MemBackedWordMap` from a given dictionary.
-    pub fn with_dictionary<K: AsRef<str>>(mut dictionary: HashMap<K, Vec<String>>) -> Self {
+    pub fn with_dictionary<K: AsRef<str>>(
+        mut dictionary: HashMap<K, Vec<String>>,
+    ) -> Self {
         let (ref_words, lookup) = {
             let mut lookup_index: HashMap<String, u32> = HashMap::new();
             let mut ref_words = Vec::new();
@@ -226,7 +230,7 @@ mod tests {
     #[test]
     fn test_basic_map() {
         let words = get_words();
-        let map = MemBackedWordMap::with_dictionary(words);
+        let map = WordMap::with_dictionary(words);
 
         let word = map.get("hello");
         assert!(word.is_some());
@@ -238,7 +242,7 @@ mod tests {
     #[test]
     fn bench_basic_map() {
         let words = get_words();
-        let map = MemBackedWordMap::with_dictionary(words);
+        let map = WordMap::with_dictionary(words);
 
         let start = std::time::Instant::now();
         for _ in 0..1_000 {

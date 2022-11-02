@@ -4,13 +4,15 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::{cmp, i64};
 
+use bytecheck::CheckBytes;
 use deunicode::deunicode;
 use hashbrown::{HashMap, HashSet};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::composition::Composition;
 use crate::edit_distance;
 use crate::suggestion::Suggestion;
-use crate::wordmaps::{MemBackedWordMap, WordRepr};
+use crate::wordmaps::{WordMap, WordRepr};
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum Verbosity {
@@ -63,6 +65,8 @@ mod ascii {
 const WORD_COUNT: i64 = 1_024_908_267_229;
 const PREFIX_LENGTH: i64 = 7;
 
+#[derive(Archive, Deserialize, Serialize)]
+#[archive_attr(derive(CheckBytes))]
 pub struct SymSpell {
     /// Maximum edit distance for doing lookups.
     max_dictionary_edit_distance: i64,
@@ -70,7 +74,7 @@ pub struct SymSpell {
     count_threshold: i64,
     max_length: usize,
     words: HashMap<String, i64>,
-    pub deletes: MemBackedWordMap,
+    pub deletes: WordMap,
 }
 
 impl Default for SymSpell {
@@ -189,7 +193,7 @@ impl SymSpell {
             }
         }
 
-        self.deletes = MemBackedWordMap::with_dictionary(deletes);
+        self.deletes = WordMap::with_dictionary(deletes);
     }
 
     /// Find suggested spellings for a given input word, using the maximum
@@ -843,7 +847,6 @@ fn edits(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
