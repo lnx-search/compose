@@ -6,12 +6,11 @@ use std::{cmp, i64};
 
 use deunicode::deunicode;
 use hashbrown::{HashMap, HashSet};
-use rayon::prelude::*;
 
 use crate::composition::Composition;
 use crate::edit_distance;
 use crate::suggestion::Suggestion;
-use crate::wordmaps::{DiskBackedWordMap, MemBackedWordMap, WordRepr};
+use crate::wordmaps::{MemBackedWordMap, WordRepr};
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum Verbosity {
@@ -72,10 +71,6 @@ pub struct SymSpell {
     max_length: usize,
     words: HashMap<String, i64>,
     pub deletes: MemBackedWordMap,
-
-    /// Words that exceed the prefix length are still processed but are backed onto
-    /// a mem mapped file as they're not going to be accessed often.
-    pub big_deletes: Option<DiskBackedWordMap>,
 }
 
 impl Default for SymSpell {
@@ -86,7 +81,6 @@ impl Default for SymSpell {
             max_length: 0,
             words: Default::default(),
             deletes: Default::default(),
-            big_deletes: None,
         }
     }
 }
@@ -118,7 +112,7 @@ impl SymSpell {
         for line in sr.lines() {
             let l = line.unwrap();
             let line_parts: Vec<&str> = l.split(separator).collect();
-            let key = line_parts[term_index as usize].to_string();
+            let key = &line_parts[term_index as usize];
             let count = line_parts[count_index as usize].parse::<i64>().unwrap();
 
             frequencies.push((deunicode(&key), count))
@@ -181,60 +175,20 @@ impl SymSpell {
             }
         }
 
-        let computed_edits: Vec<(String, HashSet<String>)> = to_compute
-            .into_par_iter()
-            .map(|word| {
-                let deletes = edits_prefix(edit_distance, &word);
-
-                (word, deletes)
-            })
-            .collect();
-
-        for (term, computed_edits) in computed_edits {
+        for word in to_compute {
+            let computed_edits = edits_prefix(edit_distance, &word);
             for delete in computed_edits {
                 deletes
-                    .entry(delete.clone())
+                    .entry(delete.to_string())
                     .and_modify(|e: &mut Vec<String>| {
-                        if !e.contains(&term) {
-                            e.push(term.clone());
+                        if !e.contains(&word) {
+                            e.push(word.clone());
                         }
                     })
-                    .or_insert_with(|| vec![term.clone()]);
+                    .or_insert_with(|| vec![word.clone()]);
             }
         }
 
-        if !compute_non_prefix {
-            self.deletes = MemBackedWordMap::with_dictionary(deletes);
-            self.big_deletes = None;
-            return;
-        }
-
-        let long_edit_results: Vec<(String, HashSet<String>)> =
-            Vec::from_iter(long_words.into_iter())
-                .into_par_iter()
-                .map(|long_word| {
-                    let deletes = edits_suffix(edit_distance, &long_word);
-
-                    (long_word, deletes)
-                })
-                .collect();
-
-        let mut suffix_edits = HashMap::new();
-        for (long_word, suffixes) in long_edit_results {
-            for suffix in suffixes {
-                suffix_edits
-                    .entry(suffix.clone())
-                    .and_modify(|e: &mut Vec<String>| {
-                        if !e.contains(&long_word) {
-                            e.push(long_word.clone());
-                        }
-                    })
-                    .or_insert_with(|| vec![long_word.clone()]);
-            }
-        }
-
-        let long_dict = MemBackedWordMap::with_dictionary(suffix_edits);
-        self.big_deletes = DiskBackedWordMap::from_word_map(long_dict).ok();
         self.deletes = MemBackedWordMap::with_dictionary(deletes);
     }
 
@@ -696,21 +650,21 @@ impl SymSpell {
             for i in 1..=imax {
                 let top_prob_log: f64;
 
-                let mut part = ascii::slice(&input, j, j + i).to_string();
+                let mut part: Cow<str> = Cow::Borrowed(ascii::slice(&input, j, j + i));
 
                 let mut sep_len = 0;
                 let mut top_ed: i64 = 0;
 
                 let first_char = ascii::at(&part, 0).unwrap();
                 if first_char.is_whitespace() {
-                    part = ascii::remove(&part, 0);
+                    part = Cow::Owned(ascii::remove(&part, 0));
                 } else {
                     sep_len = 1;
                 }
 
                 top_ed += part.len() as i64;
 
-                part = part.replace(" ", "");
+                part = Cow::Owned(part.replace(" ", ""));
 
                 top_ed -= part.len() as i64;
 
@@ -730,7 +684,7 @@ impl SymSpell {
                 // set values in first loop
                 if j == 0 {
                     compositions[i - 1] = Composition {
-                        segmented_string: part.to_owned(),
+                        segmented_string: part.to_string(),
                         distance_sum: top_ed,
                         prob_log_sum: top_prob_log,
                     };
@@ -835,18 +789,18 @@ fn parse_words(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn edits_prefix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String> {
+fn edits_prefix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<Cow<str>> {
     let mut hash_set = HashSet::new();
 
     let key_len = key.len() as i64;
 
     if key_len <= max_dictionary_edit_distance {
-        hash_set.insert("".to_string());
+        hash_set.insert(Cow::Borrowed(""));
     }
 
     if key_len > PREFIX_LENGTH {
         let shortened_key = ascii::slice(key, 0, PREFIX_LENGTH as usize);
-        hash_set.insert(shortened_key.to_string());
+        hash_set.insert(Cow::Borrowed(shortened_key));
         edits(
             max_dictionary_edit_distance,
             shortened_key,
@@ -854,7 +808,7 @@ fn edits_prefix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String>
             &mut hash_set,
         );
     } else {
-        hash_set.insert(key.to_string());
+        hash_set.insert(Cow::Borrowed(key));
         edits(max_dictionary_edit_distance, key, 0, &mut hash_set);
     };
 
@@ -865,14 +819,14 @@ fn edits(
     max_dictionary_edit_distance: i64,
     word: &str,
     edit_distance: i64,
-    delete_words: &mut HashSet<String>,
+    delete_words: &mut HashSet<Cow<str>>,
 ) {
     let edit_distance = edit_distance + 1;
     let word_len = word.len();
 
     if word_len > 1 {
         for i in 0..word_len {
-            let delete = ascii::remove(word, i);
+            let delete: Cow<str> = Cow::Owned(ascii::remove(word, i));
 
             if !delete_words.contains(&delete) {
                 delete_words.insert(delete.clone());
@@ -890,99 +844,10 @@ fn edits(
     }
 }
 
-fn edits_suffix(max_dictionary_edit_distance: i64, key: &str) -> HashSet<String> {
-    let mut hash_set = HashSet::new();
-
-    let key_len = key.len() as i64;
-
-    if key_len <= max_dictionary_edit_distance {
-        hash_set.insert("".to_string());
-    }
-
-    if key_len > (PREFIX_LENGTH - 1) {
-        let shortened_key =
-            ascii::slice(key, key.len() - (PREFIX_LENGTH - 1) as usize, key.len());
-        hash_set.insert(shortened_key.to_string());
-        edits_reverse(
-            max_dictionary_edit_distance,
-            shortened_key,
-            0,
-            &mut hash_set,
-        );
-    } else {
-        hash_set.insert(key.to_string());
-        edits_reverse(max_dictionary_edit_distance, key, 0, &mut hash_set);
-    };
-
-    hash_set
-}
-
-fn edits_reverse(
-    max_dictionary_edit_distance: i64,
-    word: &str,
-    edit_distance: i64,
-    delete_words: &mut HashSet<String>,
-) {
-    let edit_distance = edit_distance + 1;
-    let word_len = word.len();
-
-    if word_len > 1 {
-        for i in 0..(word_len - 1) {
-            let delete = ascii::remove(word, i);
-
-            if !delete_words.contains(&delete) {
-                delete_words.insert(delete.clone());
-
-                if edit_distance < max_dictionary_edit_distance {
-                    edits_reverse(
-                        max_dictionary_edit_distance,
-                        &delete,
-                        edit_distance,
-                        delete_words,
-                    );
-                }
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_suffix_processor() {
-        let word = "returnee";
-        let edits = edits_suffix(2, word);
-        dbg!(edits);
-    }
-
-    #[test]
-    fn check_big_words() {
-        let mut sym_spell = SymSpell::default();
-        let instant = std::time::Instant::now();
-        sym_spell.using_dictionary_file(
-            "./data/frequency_dictionary_en_82_765.txt",
-            0,
-            1,
-            " ",
-        );
-        println!("{:?}", instant.elapsed());
-
-        let long = sym_spell.big_deletes.as_ref().unwrap();
-        let words = long.get("tune").unwrap();
-        for word in words {
-            let msg = long.word_at(word);
-            println!("{:?}", msg.as_str());
-        }
-
-        let long = sym_spell.deletes;
-        let words = long.get("apple").unwrap();
-        for word in words {
-            let msg = long.word_at(word);
-            println!("{:?}", msg);
-        }
-    }
 
     #[test]
     fn bench_correct() {

@@ -3,7 +3,6 @@ use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
 
-use anyhow::Result;
 use hashbrown::HashMap;
 use rkyv::{Archive, Serialize};
 
@@ -163,7 +162,7 @@ impl MemBackedWordMap {
     }
 
     /// Creates a new `MemBackedWordMap` from a given dictionary.
-    pub fn with_dictionary(mut dictionary: HashMap<String, Vec<String>>) -> Self {
+    pub fn with_dictionary<K: AsRef<str>>(mut dictionary: HashMap<K, Vec<String>>) -> Self {
         let (ref_words, lookup) = {
             let mut lookup_index: HashMap<String, u32> = HashMap::new();
             let mut ref_words = Vec::new();
@@ -190,7 +189,7 @@ impl MemBackedWordMap {
                 })
                 .collect();
 
-            (hash_string(&k), v.into_boxed_slice())
+            (hash_string(k.as_ref()), v.into_boxed_slice())
         }));
 
         dict.shrink_to_fit();
@@ -199,48 +198,6 @@ impl MemBackedWordMap {
             data: dict,
             word_references: ref_words,
         }
-    }
-}
-
-/// A WordMap that is stored on a mmap file and then treated like a struct
-/// via `rkyv`'s zero copy api.
-///
-/// This wrapper is incredibly unsafe as it makes the assumption that the mmap file
-/// will never be modified once created (although the system maps to anonymous memory map)
-/// and that the alignment of the data does not change.
-///
-/// **If either of those conditions are broken then this wrapper becomes UB.**
-pub struct DiskBackedWordMap {
-    file: memmap2::Mmap,
-}
-
-impl DiskBackedWordMap {
-    /// Wraps a existing WordMap to a mmap file.
-    pub(crate) fn from_word_map(map: MemBackedWordMap) -> Result<Self> {
-        let data = rkyv::to_bytes::<_, 1024>(&map)?;
-        drop(map);
-
-        let mut mmap = memmap2::MmapOptions::new().len(data.len()).map_anon()?;
-
-        mmap.copy_from_slice(&data);
-        drop(data);
-
-        Ok(Self {
-            file: mmap.make_read_only()?,
-        })
-    }
-
-    /// Gets the word which is located at the given `WordRef` pointer.
-    pub fn word_at(&self, word_ref: &rkyv::Archived<WordRef>) -> &rkyv::Archived<Word> {
-        let map = unsafe { rkyv::archived_root::<MemBackedWordMap>(&self.file) };
-        unsafe { map.word_references.get_unchecked(word_ref.0 as usize) }
-    }
-
-    /// Gets a possible array of references to words that are associated with
-    /// the given word.
-    pub fn get(&self, word: &str) -> Option<&[rkyv::Archived<WordRef>]> {
-        let map = unsafe { rkyv::archived_root::<MemBackedWordMap>(&self.file) };
-        map.data.get(&hash_string(word)).map(|v| v.as_ref())
     }
 }
 
@@ -279,21 +236,6 @@ mod tests {
     }
 
     #[test]
-    fn test_disk_map() -> Result<()> {
-        let words = get_words();
-        let map = MemBackedWordMap::with_dictionary(words);
-        let disk_map = DiskBackedWordMap::from_word_map(map)?;
-
-        let word = disk_map.get("hello");
-        assert!(word.is_some());
-
-        let word = word.unwrap();
-        assert_eq!(word.len(), 2);
-
-        Ok(())
-    }
-
-    #[test]
     fn bench_basic_map() {
         let words = get_words();
         let map = MemBackedWordMap::with_dictionary(words);
@@ -307,24 +249,5 @@ mod tests {
             assert_eq!(word.len(), 2);
         }
         println!("{:?} {:?}/iter", start.elapsed(), start.elapsed() / 1_000);
-    }
-
-    #[test]
-    fn bench_disk_map() -> Result<()> {
-        let words = get_words();
-        let map = MemBackedWordMap::with_dictionary(words);
-        let disk_map = DiskBackedWordMap::from_word_map(map)?;
-
-        let start = std::time::Instant::now();
-        for _ in 0..1_000 {
-            let word = disk_map.get("hello");
-            assert!(word.is_some());
-
-            let word = word.unwrap();
-            assert_eq!(word.len(), 2);
-        }
-        println!("{:?} {:?}/iter", start.elapsed(), start.elapsed() / 1_000);
-
-        Ok(())
     }
 }
