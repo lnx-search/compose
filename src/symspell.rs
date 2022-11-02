@@ -5,7 +5,6 @@ use std::path::Path;
 use std::{cmp, i64};
 
 use bytecheck::CheckBytes;
-use deunicode::deunicode;
 use hashbrown::{HashMap, HashSet};
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -119,11 +118,10 @@ impl SymSpell {
             let key = &line_parts[term_index as usize];
             let count = line_parts[count_index as usize].parse::<i64>().unwrap();
 
-            frequencies.push((deunicode(&key), count))
+            frequencies.push((key.to_string(), count))
         }
 
-        // Safe because we normalize all keys to ascii encoding before passing.
-        unsafe { self.using_dictionary_frequencies(frequencies, true) };
+        self.using_dictionary_frequencies(frequencies.into_iter(), true);
 
         true
     }
@@ -136,9 +134,9 @@ impl SymSpell {
     ///
     /// If you do not ensure that the tokens are ascii this systems becomes UB when trying
     /// to perform lookups.
-    pub unsafe fn using_dictionary_frequencies(
+    pub fn using_dictionary_frequencies<K: AsRef<str>>(
         &mut self,
-        frequencies: Vec<(String, i64)>,
+        frequencies: impl Iterator<Item = (K, i64)>,
         compute_non_prefix: bool,
     ) {
         let mut deletes = HashMap::new();
@@ -149,6 +147,7 @@ impl SymSpell {
 
         let mut to_compute = Vec::new();
         for (term, count) in frequencies {
+            let term = deunicode::deunicode(term.as_ref());
             if compute_non_prefix && (term.len() > PREFIX_LENGTH as usize) {
                 long_words.insert(term.clone());
             }
