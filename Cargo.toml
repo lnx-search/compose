@@ -10,9 +10,9 @@ exclude = ["data/*"]
 [dependencies]
 rkyv = { version = "0.7.31", features = ["alloc", "hashbrown", "validation"] }
 
-bytecheck = "0.6.9"
+bytecheck = "0.7.0"
 memmap2 = "0.5.2"
-hashbrown = "0.12.1"
-ahash = "0.7.6"
+hashbrown = "0.12.3"
+ahash = "0.8.3"
 deunicode = "1.3.1"
 triple_accel = "0.4.0"
