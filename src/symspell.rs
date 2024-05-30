@@ -4,8 +4,8 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::{cmp, i64};
 
+use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use bytecheck::CheckBytes;
-use hashbrown::{HashMap, HashSet};
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::composition::Composition;

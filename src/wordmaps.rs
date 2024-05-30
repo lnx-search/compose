@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
 
+use ahash::{HashMap, HashMapExt};
 use bytecheck::CheckBytes;
-use hashbrown::HashMap;
 use rkyv::{Archive, Deserialize, Serialize};
 
 /// A 32 bit sized pointer to a given word.
